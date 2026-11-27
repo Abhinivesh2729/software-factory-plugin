@@ -142,13 +142,14 @@ def handle_cmd(sid, data, args):
     path = os.path.join(STATE_DIR, f"{sid}.json")
     st = load_json(path, None)
     if sub == "start":
-        flag = "--workspace" if "--workspace" in argv[:-1] else "--company"
-        company = argv[argv.index(flag) + 1] if flag in argv[:-1] else None
+        if "--workspace" not in argv and "--company" in argv:
+            return None  # another factory tool's run marker, not ours
+        company = argv[argv.index("--workspace") + 1] if "--workspace" in argv[:-1] else None
         cos = companies()
         if company not in cos or cos[company].get("bucket"):
             real = ", ".join(k for k, c in cos.items() if not c.get("bucket")) or "?"
             return f"Name the workspace this run serves: `factory-run start --workspace <id>` ({real}). One workspace per run."
-        st = {"session": sid, "status": "running", "started": now(), "company": company,
+        st = {"engine": "software-factory-plugin", "session": sid, "status": "running", "started": now(), "company": company,
               "transcript": data.get("transcript_path"), "offset": 0,
               "tokens": {}, "item": None, "trip": None, "history": []}
         # Count tokens already spent in this session before `start`.
@@ -157,8 +158,8 @@ def handle_cmd(sid, data, args):
         save_state(sid, st)
         ledger("run_start", sid, st, company=company)
         return None
-    if not st:
-        return None  # not a factory run; let the CLI print its own error
+    if not st or st.get("engine") != "software-factory-plugin":
+        return None  # not a run of this plugin; let the CLI print its own error
     update_tokens(st)
     if sub == "item":
         if (st.get("trip") or {}).get("scope") == "run":
@@ -289,7 +290,7 @@ def main():
                 return 2
             return 0
     st = load_json(os.path.join(STATE_DIR, f"{sid}.json"), None)
-    if not st or st.get("status") != "running":
+    if not st or st.get("status") != "running" or st.get("engine") != "software-factory-plugin":
         return 0
     if st.get("company"):
         bad = foreign(st["company"], json.dumps(tin))
