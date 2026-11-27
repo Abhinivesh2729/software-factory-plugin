@@ -1,0 +1,14 @@
+{
+  "description": "Software Factory: run guard (budget, loops, deny list, one workspace per run), audit log and setup reminder. All are no-ops outside factory runs.",
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.py\"" } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/audit-log.sh\"" } ] }
+    ],
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"" } ] }
+    ]
+  }
+}

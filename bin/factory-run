@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""factory-run: mark the steps of a factory operator run.
+
+  factory-run start --workspace <id>                  begin a run for one workspace (factory.json)
+  factory-run item <project>#<n> <activity> <title>   begin an item; activity = code|review|reply|triage|deps|release|other
+  factory-run done [note]                             item finished
+  factory-run park <reason>                           item stopped: not feasible / out of budget
+  factory-run end                                     run finished
+  factory-run status                                  show the live run
+
+Run each one as its own Bash command (no && or ;). The plugin's PreToolUse hook
+(hooks/guard.py) records the state; this CLI prints it and, if factory.json names a
+status issue, refreshes it.
+"""
+import json, os, subprocess, sys, time
+
+HOME = os.path.expanduser("~")
+STATE_DIR = os.path.join(HOME, ".factory/run")
+
+
+def _home():
+    try:
+        with open(os.path.join(HOME, ".factory/config.json")) as f:
+            return os.path.expanduser(json.load(f).get("home", ""))
+    except Exception:
+        return ""
+
+
+FACTORY = _home()
+
+
+def _cfg():
+    try:
+        with open(os.path.join(FACTORY, "factory.json")) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+# The status issue may be public: only projects listed here are named on it.
+PUBLIC_PROJECTS = set((_cfg().get("status_issue") or {}).get("public_projects", []))
+
+
+def load(path, default=None):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def live_state():
+    cur = load(os.path.join(STATE_DIR, "current.json"))
+    if cur:
+        st = load(os.path.join(STATE_DIR, f"{cur['session']}.json"))
+        if st:
+            return st
+    files = [os.path.join(STATE_DIR, f) for f in os.listdir(STATE_DIR)] if os.path.isdir(STATE_DIR) else []
+    files = [f for f in files if f.endswith(".json") and not f.endswith("current.json")]
+    return load(max(files, key=os.path.getmtime)) if files else None
+
+
+def eff(tokens):
+    return sum(m.get("input", 0) + m.get("cache_write", 0) + m.get("output", 0) + m.get("cache_read", 0) / 10
+               for m in tokens.values())
+
+
+def human(n):
+    return f"{n/1e6:.1f}M" if n >= 1e6 else f"{n/1e3:.0f}K"
+
+
+def label(ref, title):
+    proj = ref.split("#")[0].lower()
+    if proj in PUBLIC_PROJECTS:
+        num = ref.split("#", 1)[1] if "#" in ref else ""
+        return f"#{num} {title}".strip() if num else (title or ref)
+    return "another project"
+
+
+def summary(st):
+    t = time.time()
+    tok = st.get("tokens", {})
+    run_eff = eff(tok) - st.get("tokens_at_start", 0)
+    lines = []
+    it = st.get("item")
+    if st.get("status") == "ended":
+        lines.append("**Now:** idle (last run finished)")
+    elif it:
+        lines.append(f"**Now:** {label(it['ref'], it['title'])} ({it['activity']}) · "
+                     f"{(t - it['started']) / 60:.0f} min · {human(eff(tok) - it['tokens_at_start'])} effective tokens")
+    else:
+        lines.append("**Now:** between items")
+    models = ", ".join(sorted(tok)) or "n/a"
+    lines.append(f"**Run:** started {time.strftime('%d %b %H:%M', time.localtime(st['started']))} · "
+                 f"{(t - st['started']) / 60:.0f} min · {human(run_eff)} effective tokens · {models}")
+    trip = st.get("trip")
+    lines.append(f"**Guard:** stopped: {trip['reason']}" if trip else "**Guard:** ok")
+    hist = st.get("history", [])[-6:]
+    if hist:
+        lines.append("\n### Recent")
+        icon = {"done": "done", "parked": "parked", "abandoned": "dropped"}
+        for h in reversed(hist):
+            note = f": {h['note']}" if h.get("note") and h["ref"].split("#")[0].lower() in PUBLIC_PROJECTS else ""
+            lines.append(f"- {icon.get(h['outcome'], h['outcome'])} · {label(h['ref'], h['title'])} ({h['activity']}){note}")
+    return "\n".join(lines)
+
+
+def refresh_issue(st):
+    cfg = _cfg().get("status_issue") or {}
+    if not cfg.get("number"):
+        return
+    body = ("_Live status of the software factory. "
+            "Updated automatically at each step; no need to reply here._\n\n"
+            + summary(st) + f"\n\n_Last update: {time.strftime('%d %b %Y %H:%M %Z')}_")
+    subprocess.run(["gh", "issue", "edit", str(cfg["number"]), "-R", cfg["repo"], "--body", body],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+
+
+def main():
+    sub = sys.argv[1] if len(sys.argv) > 1 else "status"
+    if sub in ("-h", "--help", "help"):
+        print(__doc__)
+        return 0
+    st = live_state()
+    if not st:
+        print("No factory run recorded yet. Start one with `factory-run start --workspace <id>` (as its own Bash command, inside a Claude Code session).")
+        return 1 if sub != "status" else 0
+    print(summary(st).replace("**", ""))
+    if sub != "status":
+        try:
+            refresh_issue(st)
+        except Exception:
+            pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

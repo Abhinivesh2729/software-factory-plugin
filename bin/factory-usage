@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""factory-usage: tokens spent by factory operator runs, by model, activity, project and item.
+
+  factory-usage            last 7 days
+  factory-usage --days 30
+  factory-usage --today
+
+Reads ~/.factory/ledger.jsonl (written by hooks/guard.py) for runs and item windows,
+then the Claude Code transcripts of those runs for per-message usage. Each assistant
+message is attributed to the item open at its timestamp; the rest is "overhead"
+(reading rules, triage scan, digest). Counts each API message once.
+Effective tokens = input + cache writes + output + cache reads/10.
+"""
+import argparse, collections, datetime as dt, json, os, sys
+
+HOME = os.path.expanduser("~")
+LEDGER = os.path.join(HOME, ".factory/ledger.jsonl")
+KINDS = (("input", "input_tokens"), ("cache_write", "cache_creation_input_tokens"),
+         ("cache_read", "cache_read_input_tokens"), ("output", "output_tokens"))
+
+
+def parse_ts(s):
+    s = s.replace("Z", "+00:00")
+    if len(s) >= 5 and (s[-5] in "+-") and s[-3] != ":":
+        s = s[:-2] + ":" + s[-2:]
+    return dt.datetime.fromisoformat(s)
+
+
+def human(n):
+    return f"{n/1e6:.2f}M" if n >= 1e6 else f"{n/1e3:.0f}K"
+
+
+def effective(c):
+    return c["input"] + c["cache_write"] + c["output"] + c["cache_read"] / 10
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--days", type=int, default=7)
+    ap.add_argument("--today", action="store_true")
+    a = ap.parse_args()
+    since = dt.datetime.now().astimezone() - dt.timedelta(days=a.days)
+    if a.today:
+        since = dt.datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    if not os.path.exists(LEDGER):
+        print("No factory runs recorded yet (~/.factory/ledger.jsonl missing).")
+        return 0
+
+    runs = collections.OrderedDict()  # session -> {transcript, windows: [(start, end, meta)]}
+    open_item = {}
+    for line in open(LEDGER):
+        try:
+            r = json.loads(line)
+        except Exception:
+            continue
+        ts, sid = parse_ts(r["ts"]), r["session"]
+        run = runs.setdefault(sid, {"transcript": r.get("transcript"), "start": ts, "windows": []})
+        run["transcript"] = run["transcript"] or r.get("transcript")
+        if r["event"] == "item_start":
+            open_item[sid] = (ts, {k: r.get(k) for k in ("project", "ref", "activity", "title")})
+        elif r["event"] == "item_end" and sid in open_item:
+            s, meta = open_item.pop(sid)
+            meta["outcome"] = r.get("outcome")
+            run["windows"].append((s, ts, meta))
+    now = dt.datetime.now().astimezone()
+    for sid, (s, meta) in open_item.items():
+        meta["outcome"] = "in progress"
+        runs[sid]["windows"].append((s, now, meta))
+
+    zero = lambda: dict.fromkeys([k for k, _ in KINDS], 0)
+    by_model = collections.defaultdict(zero)
+    by_activity = collections.defaultdict(zero)
+    by_project = collections.defaultdict(zero)
+    by_item = collections.defaultdict(zero)
+    item_meta, n_runs = {}, 0
+    for sid, run in runs.items():
+        if run["start"] < since or not run["transcript"] or not os.path.exists(run["transcript"]):
+            continue
+        n_runs += 1
+        seen = set()
+        for line in open(run["transcript"]):
+            try:
+                j = json.loads(line)
+            except Exception:
+                continue
+            m = j.get("message")
+            if j.get("type") != "assistant" or not isinstance(m, dict) or not m.get("usage"):
+                continue
+            if m.get("id") in seen:
+                continue
+            seen.add(m.get("id"))
+            ts = parse_ts(j["timestamp"])
+            if ts < run["start"]:
+                continue
+            meta = next((w[2] for w in reversed(run["windows"]) if w[0] <= ts <= w[1]), None)
+            act = meta["activity"] if meta else "overhead"
+            proj = meta["project"] if meta else "-"
+            item = f"{meta['ref']} {meta.get('title') or ''}".strip() if meta else None
+            if item:
+                item_meta[item] = meta
+            for k, src in KINDS:
+                v = m["usage"].get(src) or 0
+                by_model[m.get("model", "?")][k] += v
+                by_activity[act][k] += v
+                by_project[proj][k] += v
+                if item:
+                    by_item[item][k] += v
+
+    print(f"Factory usage since {since:%d %b %H:%M} · {n_runs} run(s)\n")
+
+    def table(title, rows, limit=None):
+        print(f"{title:<34}{'effective':>11}{'output':>10}{'cache wr':>10}{'cache rd':>11}")
+        items = sorted(rows.items(), key=lambda kv: -effective(kv[1]))[:limit]
+        for name, c in items:
+            print(f"{name[:33]:<34}{human(effective(c)):>11}{human(c['output']):>10}"
+                  f"{human(c['cache_write']):>10}{human(c['cache_read']):>11}")
+        print()
+
+    table("Model", by_model)
+    table("Activity", by_activity)
+    table("Project", by_project)
+    if by_item:
+        table("Top items", {f"{k} [{item_meta[k].get('outcome')}]": v for k, v in by_item.items()}, limit=10)
+    total = zero()
+    for c in by_model.values():
+        for k in total:
+            total[k] += c[k]
+    print(f"Total effective tokens: {human(effective(total))} "
+          f"(input {human(total['input'])}, output {human(total['output'])}, "
+          f"cache writes {human(total['cache_write'])}, cache reads {human(total['cache_read'])})")
+    print("On a Claude Max plan these count against usage limits, not a bill.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

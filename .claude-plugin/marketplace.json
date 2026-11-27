@@ -1,0 +1,13 @@
+{
+  "name": "software-factory",
+  "owner": { "name": "0xabhi" },
+  "description": "Software Factory: long-term maintenance of software products, run by Claude Code.",
+  "plugins": [
+    {
+      "name": "software-factory",
+      "source": "./",
+      "description": "Ticket to fix to review to merge to verified deploy, under approval rules you choose.",
+      "category": "productivity"
+    }
+  ]
+}

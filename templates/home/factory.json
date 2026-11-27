@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "mode": "dry-run",
+  "owner": { "name": "", "notify": "push" },
+  "agent": {
+    "name": "Factory Agent",
+    "tracker_account": "",
+    "wip_limit": 1,
+    "pick_unassigned": false
+  },
+  "approvals": {
+    "preset": "cautious",
+    "review": "agent",
+    "client_replies": "draft",
+    "rules": [
+      { "when": { "class": ["docs", "tests", "lint", "deps-minor"] }, "merge": "ask", "deploy": "ask" },
+      { "when": { "class": ["bugfix", "hotfix"] }, "merge": "ask", "deploy": "ask" },
+      { "when": { "class": ["feature", "refactor", "deps-major"] }, "merge": "ask", "deploy": "ask" }
+    ]
+  },
+  "branch_pattern": "{type}/{key}-{slug}",
+  "workspaces": {},
+  "projects": {},
+  "budget": {
+    "run_minutes": 180,
+    "item_minutes": 45,
+    "run_effective_tokens": 30000000,
+    "item_effective_tokens": 8000000,
+    "repeat_limit": 6
+  },
+  "status_issue": null
+}
