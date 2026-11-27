@@ -22,6 +22,23 @@ command with its full path:
 before the ticket, `factory-run done "<note>"` or `factory-run park "<reason>"` after. If a call is
 blocked with `FACTORY GUARD`, do exactly what it says.
 
+## Ticket updates
+Keep the ticket's readers informed at every stage with a short, professional comment, first
+person, no jargon, no internal tool names. Use `factory.json › comments` if it sets its own text;
+otherwise these (fill the placeholders):
+
+| Stage | Comment |
+|---|---|
+| claim (step 2) | Picked this up and moved it to In Progress. Looking into the cause now. |
+| cause found (step 3) | Found the cause: {one sentence}. Working on the fix. |
+| PR opened (step 5) | Created a pull request with the fix: {PR link}. Next, I'm reviewing it. |
+| review (step 6) | I'm reviewing the pull request. |
+| merged (step 7) | The pull request is merged. Deploying it now. |
+| deployed (step 8) | Deployed successfully and verified live at {url}. Closing this ticket. |
+| blocked (any step) | I need your input: {question}. I've paused work on this ticket until then. |
+
+One comment per stage; don't repeat a stage on retries.
+
 ## 1. Pick
 - Capacity: count tickets assigned to the agent in the in-progress status. If it is at
   `agent.wip_limit`, finish those first; don't pick new work.
@@ -33,7 +50,7 @@ blocked with `FACTORY GUARD`, do exactly what it says.
 
 ## 2. Claim
 Assign it to the agent if needed and move it to **In Progress** (`tracker.statuses.in_progress`;
-on Jira, list transitions and use the matching one). Comment one line: "Picked up, working on it."
+on Jira, list transitions and use the matching one). Post the **claim** comment.
 
 ## 3. Understand and reproduce
 - Fresh worktree from the default branch: `git -C <path> fetch origin` then
@@ -41,7 +58,8 @@ on Jira, list transitions and use the matching one). Comment one line: "Picked u
   Never touch the owner's own checkout if it has uncommitted changes.
 - Branch name from `branch_pattern`, e.g. `bug/BA-2408-crash-on-checkout`: type = `bug` for bugs,
   `feature` for features, `chore` for upkeep; slug = 3 to 6 lowercase words of the title.
-- Find the cause. Write a failing test that shows the bug when the stack allows it.
+- Find the cause and post the **cause found** comment. Write a failing test that shows the bug when
+  the stack allows it.
 
 ## 4. Fix
 - Smallest change that fixes the cause. Follow the repo's style and `policy.md` house rules.
@@ -54,7 +72,8 @@ on Jira, list transitions and use the matching one). Comment one line: "Picked u
 ## 5. Pull request
 Commit with a plain message that starts with the ticket key (`BA-2408: fix crash when cart is empty`).
 Push the branch, then `gh pr create` with: the ticket link, the cause in one or two sentences, what
-changed, and how it was tested. Move the ticket to **Ready for Review** and comment the PR link.
+changed, and how it was tested. Post the **PR opened** comment, move the ticket to
+**Ready for Review**, then post the **review** comment.
 
 ## 6. Review
 Per `approvals.review`:
@@ -68,7 +87,7 @@ Per `approvals.review`:
 Find the first rule in `approvals.rules` whose `when` matches (class, priority, max_lines).
 - `merge: "auto"`: wait for CI (`gh pr checks <n> --watch --fail-fast`, give up after 20 minutes),
   check there are no conflicts (`gh pr view <n> --json mergeable`), then
-  `gh pr merge <n> --squash --delete-branch`. Never `--admin`.
+  `gh pr merge <n> --squash --delete-branch`. Never `--admin`. Post the **merged** comment.
 - `merge: "ask"`: ask the owner one yes/no question with the PR link; stop here.
 - CI red: fix it once if it's your change; otherwise comment and ask.
 
@@ -83,7 +102,7 @@ Per `projects.<id>.deploy`:
 - Failed deploy or check: reopen with a comment, don't move to Done, ask the owner.
 
 ## 9. Close
-Move to **Done**. Comment: what was wrong, what changed, PR link, how it was verified live.
+Post the **deployed** comment (add one line on what was wrong and what changed), then move to **Done**.
 Client-facing reply: per `approvals.client_replies` send it or leave it as a draft/internal note.
 Remove the worktree (`git worktree remove`). Run `factory-run done "<one line>"`.
 

@@ -1,10 +1,21 @@
 {
   "name": "software-factory",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Maintain many software products with a small team. Claude picks up client tickets (GitHub Issues, Jira), fixes them on a branch, reviews, merges and verifies the deploy under approval rules you set.",
-  "author": { "name": "0xabhi", "url": "https://factory.0xabhi.space" },
+  "author": {
+    "name": "0xabhi",
+    "url": "https://factory.0xabhi.space"
+  },
   "homepage": "https://factory.0xabhi.space",
   "repository": "https://github.com/Abhinivesh2729/software-factory-plugin",
   "license": "MIT",
-  "keywords": ["maintenance", "tickets", "jira", "github", "ci-cd", "autonomous", "software-factory"]
+  "keywords": [
+    "maintenance",
+    "tickets",
+    "jira",
+    "github",
+    "ci-cd",
+    "autonomous",
+    "software-factory"
+  ]
 }
